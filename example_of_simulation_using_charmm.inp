@@ -1,0 +1,361 @@
+* EEF1 simulation of I27 and ClpY with TMD
+*
+! Written by Sadra December 2018
+!------------------------------------------------------------------
+! Read param, top, psf and coor files, 
+! TOPPAR is an env variable which locates the address of parameters
+!------------------------------------------------------------------
+read rtf card name $TOPPAR/toph19_eef1.1.inp
+read para card name $TOPPAR/param19_eef1.1.inp
+!-------------------------------
+! Read proper coor file:
+! geo = 0; Unrestrained, 1x2ssra
+! geo = 1; Restrained, 2x2ssra
+!-------------------------------
+if geo .eq. 0 then
+ read psf card name @domain-x2ssra-do2-oldpsf.psf
+ if mode .eq. pull then
+  read coor card name @domain-x2ssra-do2.cor ! open mode in main set 
+  read coor card name @domain-x2ssra-do0.cor comp  ! close mode in comp set
+ elseif
+  read coor card name @domain-x2ssra-do0.cor ! close mode in main set 
+  read coor card name @domain-x2ssra-do2.cor comp ! open mode in comp set  
+ endif
+elseif
+ read psf card name @domain-x2ssra-do2-oldpsf.psf
+ if mode .eq. pull then
+  read coor card name @domain-x2ssra-do2.cor ! open mode in main set
+  read coor card name @domain-x2ssra-do0.cor comp  ! close mode in comp set
+ elseif
+  read coor card name @domain-x2ssra-do0.cor ! close mode in main set
+  read coor card name @domain-x2ssra-do2.cor comp ! open mode in comp set
+ endif
+endif
+!-----------------------------------------
+! {ClpY drifts, constraint Center of Mass}
+!-----------------------------------------
+if move .ne. A then
+coor stat sele type CA .and. segid PROA end
+CONS HMCM FORCE 5.0 WEIG REFX ?XAVE REFY ?YAVE REFZ ?ZAVE -
+             SELECT type CA .and. segid PROA END
+endif
+if move .ne. B then
+coor stat sele type CA .and. segid PROB end
+CONS HMCM FORCE 5.0 WEIG REFX ?XAVE REFY ?YAVE REFZ ?ZAVE -
+             SELECT type CA .and. segid PROB END
+endif
+if move .ne. C then
+coor stat sele type CA .and. segid PROC end
+CONS HMCM FORCE 5.0 WEIG REFX ?XAVE REFY ?YAVE REFZ ?ZAVE -
+             SELECT type CA .and. segid PROC END
+endif
+if move .ne. D then
+coor stat sele type CA .and. segid PROD end
+CONS HMCM FORCE 5.0 WEIG REFX ?XAVE REFY ?YAVE REFZ ?ZAVE -
+             SELECT type CA .and. segid PROD END
+endif
+if move .ne. E then
+coor stat sele type CA .and. segid PROE end
+CONS HMCM FORCE 5.0 WEIG REFX ?XAVE REFY ?YAVE REFZ ?ZAVE -
+             SELECT type CA .and. segid PROE END
+endif
+if move .ne. F then
+coor stat sele type CA .and. segid PROF end
+CONS HMCM FORCE 5.0 WEIG REFX ?XAVE REFY ?YAVE REFZ ?ZAVE -
+             SELECT type CA .and. segid PROF END
+endif
+!---------------------------------
+! Setup EEF1 implict solvent model
+!---------------------------------
+eef1 setup temp 298.15 unit 93 name $TOPPAR/solvpar.inp
+update ctonnb 7.0 ctofnb 9.0 cutnb 11.0 group rdie
+shake bonh param ! tol 1.0e-8
+scalar fbeta set 5.0
+!---------------------------------
+! Define active loop for 3x2 moves
+!---------------------------------
+if move .eq. 1 then
+define active sele segid PROA .or. segid PROB end
+endif
+if move .eq. 2 then
+define active sele segid PROC .or. segid PROD end
+endif
+if move .eq. 3 then
+define active sele segid PROE .or. segid PROF end
+endif
+!---------------------------------
+! Define active loop for 6x1 moves
+!---------------------------------
+define backbone sele (type N .or. type CA .or. type C .or. type O) end
+define active sele segid PRO@move .and. .not. type H* end
+!-------------------------------------------------------
+! Overwrite main coors with the coor file from last move
+!-------------------------------------------------------
+read coor card name pulled.cor
+!-----------------------------------------------------
+! Calculating RMSD for TMD; Moves are/are not coupled
+! Calculate increment size for TMD simulations
+!-----------------------------------------------------
+!if coupled .eq. 0 then
+coor orient rms comp sele active end
+!endif
+!if coupled .eq. 1 then
+! coor copy comp sele .not. segid PRO@move end
+! coor orient rms comp sele all end
+! open unit 11 write card name target.cor
+! write coor comp card unit 11
+! * Target coor
+! *
+! close unit 11
+!endif
+calc nsteps = @nstep * 1000   ! Emily used 20 ps for each move
+calc dincre = ( ?rms - 0.3 ) / @nsteps
+!-------------------------------------------
+! Define confined and passedconfined regions
+!-------------------------------------------
+define loop sele resid 89:93 .and. .not. segid @domain end
+coor stat sele loop end
+calc ztyr = ?zave
+calc upz = @ztyr - 5
+calc lowz = @ztyr + 5
+define passedconfined sele ( segid @domain .and. backbone ) .and. prop z .gt. @lowz end
+coor stat sele passedconfined end
+calc upid = ?SELIRES - 5
+calc lowid = ?SELIRES
+define confined sele ( segid @domain .and. backbone ) .and. prop z .gt. @upz -
+ .and. prop z .lt. @lowz .and. ires @upid:@lowid end
+coor stat sele confined end
+set nconfined ?nsel
+print coor sele confined end
+! open unit 11 write card name confined-cyc@cycle-mode-@mode-move-@move.cor
+! write coor sele confined end card unit 11
+! * confined region atoms for cyc@cycle-mode-@mode-move-@move
+! *
+! close unit 11
+!-----------------------------------------------
+! Random number generator of charmm 35 is broken
+! Read random number form an external file
+!-----------------------------------------------
+stream random.dat
+calc f = @f / @nconfined
+!-----------------------------------------
+! Apply pulling force on confined backbone
+!-----------------------------------------
+if mode .eq. pull then
+pull force @f xdir 0 ydir 0 zdir @zdir sele confined end
+if domain .eq. EFV  set ssrastart 82
+if domain .eq. GLY  set ssrastart 82
+if domain .eq. LEN  set ssrastart 231
+if domain .eq. BJX  set ssrastart 295
+coor stat sele segid @domain .and. resid @ssrastart end
+calc zssra = ?zave
+if @zssra .lt. @upz then
+MMFP
+GEO  cylinder -
+     xref 0.0 yref 0.0 zref 0.0 xdir 0.0 ydir 0.0 zdir 1.0 -
+     force 5 droff 0.0 sele confined end
+END
+endif
+endif
+!----------------------------------------
+! Apply conditional force to SP Nterminal
+!----------------------------------------
+if fnter .ne. 0 then
+pull force @fnter xdir 0 ydir 0 zdir -1 sele ATOM @domain 1 N end
+!-----------------------------------------
+! These lines were added on 13 august 2016
+!-----------------------------------------
+MMFP
+GEO  cylinder -
+     xref 0.0 yref 0.0 zref 0.0 xdir 0.0 ydir 0.0 zdir 1.0 -
+     force 10 droff 0.0 sele ATOM @domain 1 N end
+END
+endif
+!----------------------------
+! List applied pulling forces
+!----------------------------
+pull list
+!--------------------------------------------
+! Fixing Nterminal? Make a wise decision here
+!--------------------------------------------
+stream fixed.dat
+if geo .eq. 1 then
+if fnter .eq. 0 then
+if fixed .eq. no then
+coor stat sele ATOM @domain 1 N end
+set znterm = ?ZAVE
+MMFP
+GEO  cylinder -
+     xref 0.0 yref 0.0 zref @znterm zdir 1.0 -
+     force 100 droff 0.0 sele ATOM @domain 1 N end
+END
+MMFP
+GEO sphere harm xref 0.0 yref 0.0 zref @znterm force 10.0 sele ATOM @domain 1 N end
+END
+coor stat sele loop end
+calc zloop = ?zave
+coor stat sele segid @domain .and. resid 111 end
+set zsp = ?ZAVE
+calc diff = @zloop - @zsp
+if diff .lt. 15 then
+set fixed yes
+set zref @znterm
+open unit 12 write CARD name "fixed.dat"
+write title unit 12
+*set diff @diff
+*set fixed @fixed
+*set zref @znterm
+*
+close unit 12
+MMFP
+GEO reset
+END
+endif 
+endif
+endif
+endif
+if fnter .eq. 0 then
+if fixed .eq. yes then
+MMFP
+GEO sphere harm xref 0.0 yref 0.0 zref @zref force 100.0 sele ATOM @domain 1 N end
+END
+endif
+endif
+!-------------------------------------------------------------------------
+! Initialize TMD
+! Two atom selections are used with the TMDInitialize command.  The first
+! selection is used to define the atoms used in fitting both targets
+! to the current structure (done every INRT steps).  The second selection
+! is used to define the atoms which the TMD constraint is applied.
+!------------------------------------------------------------------------
+OPEN UNIT 88 WRITE CARD NAME tmd-ssra-cyc@cycle-mode-@mode-move-@moveindex-@move.dat
+! if coupled .eq. 0 then
+    TMDInitialize ITMD 88 FTMD 100 sele active end sele active end inrt 10 dincre @dincre
+! endif
+! if coupled .eq. 1 then
+!  TMDInitialize ITMD 88 FTMD 100 sele backbone .and. .not. segid I27 end sele active .and. backbone end inrt 1000 dincre @dincre
+! endif
+!-----------------------------------------------------
+! Read target structure, 'mode' values: pull and relax
+!-----------------------------------------------------
+!if coupled .eq. 0 then
+ if geo .eq. 0 then
+  if mode .eq. pull then
+    OPEN READ UNIT 2 CARD NAME @domain-x2ssra-do0.cor
+    READ COOR UNIT 2 CARD TARG
+    CLOSE UNIT 2
+  elseif
+    OPEN READ UNIT 2 CARD NAME @domain-x2ssra-do2.cor
+    READ COOR UNIT 2 CARD TARG
+    CLOSE UNIT 2
+  endif
+ elseif
+  if mode .eq. pull then
+    OPEN READ UNIT 2 CARD NAME @domain-x2ssra-do0.cor
+    READ COOR UNIT 2 CARD TARG
+    CLOSE UNIT 2
+  elseif
+    OPEN READ UNIT 2 CARD NAME @domain-x2ssra-do2.cor
+    READ COOR UNIT 2 CARD TARG
+    CLOSE UNIT 2
+  endif
+ endif
+!endif
+! SHAKE ERROR
+!if coupled .eq. 1 then
+!    OPEN READ UNIT 2 CARD NAME target.cor
+!    READ COOR UNIT 2 CARD TARG
+!    CLOSE UNIT 2
+!endif
+!-----------------
+! PERFORM DYANMICS
+!-----------------
+open unit 11 read form name tmd-pull-@domain.rea
+open unit 12 write form name tmd-pull-@domain.res
+! open unit 13 write form name tmd-pull-@domain.kun
+open unit 14 write unform name tmd-pull-cyc@cycle-mode-@mode-move-@moveindex-@move.dcd
+! open unit 15 write unform name tmd-pull-cyc@cycle-mode-@mode-move-@moveindex-@move.vlo
+dynamics  restrt              leap       langevin -
+ nstep     @nsteps -! The number of steps to be taken.
+ timest    0.002 -! Time step for dynamics in picoseconds.
+                 -!  The default value is 0.001 picoseconds.
+ iunread     11  -! Fortran unit from which the dynamics restart
+                 -! file should be read. A value of -1 means don't
+                 -! read any file
+ iunwrite      12 -! Fortran unit on which the dynamics restart fil
+                 -! e for the present run is to be written. A valu
+                 -! e of -1 don't read any file. Formatted output.
+ firstt      300 -! The initial temperature at which the velociti
+                 -! es have to be assigned at to begin the dynami
+                 -! cs run. Important only for the initial stage
+                 -!of a dynamics run.
+ finalt     300  - ! The desired final (equilibrium) temperature
+!                 -! for the system. Important for all stages excep
+!                 -! t initiation.
+! tstruc   375   -!The temperature at which the starting structure
+!                 -!has been equilibrated.  Used to assign velociti
+!                 -!es so that equal partition of energy will yield
+!                 -!the correct equilibrate temperature.  -999.
+!                 -! is a default which causes the program to
+!                 -!assign velocities at T=1.25*FIRSTT.
+ tconstant       -! false   Flag to indicate that constant
+                 -! temperature code will be used.
+ tcoupling  0.5 -! The coupling decay time in picoseconds for
+               - !the- temperature. A good value for this is 5 ps
+ trefer   300  - !TREFerence FINALT The reference temperature for
+               - ! constant temperature  simulations.
+ inbfrq   -1   - ! 50 The frequency of regenerating the
+               - ! non-bonded list.  INBFRQ = -1 --> all lists
+               - ! are updated when necessary (heuristic test).
+ iprfrq   1000   - ! 100 The step frequency for calculating
+               - ! averages and rms fluctuations of the major
+               - ! energy values. If this number is less than
+               - ! NTRFRQ and NTRFRQ is not equal to 0, square
+               - !root of negative number errors will occur.
+ nprint   1000  -! 10     The step frequency for storing on KUNIT
+               -!as well as printing on unit 6, the energy data
+               -!of the dynamics run.
+ nsavc    1000 -! 10 The step frequency for writing coordinates.
+ nsavv    1000 -!10 The step frequency for writing velocities.
+ iuncrd   14   -! -1  Fortran unit on which the coordinates of the
+               -! dynamics ruN are to be saved. A value of -1 means
+               -! no coordinates should be written. Unformatted output.
+ iunvel  -1    -! 15/-1 Fortran unit on which the velocities of the
+               -! dynamics run are to be saved. -1 means don't write.
+               -! Unformatted output.
+ wmin   1.50   -! !warning cutoff for minimum atom-atom distance
+ kunit    -1   -!-1     Fortran unit on which the total energy and
+               -! some of its components along with the temperature
+               -! during the run are written using formatted output.
+ ihbfrq   0    -!50  The frequency of regenerating the hydrogen
+               -! bond list. Analogous to INBFRQ
+ ilbfrq   0    -! 50 The frequency for checking whether an atom is
+               -!  in the Langevin region, defined by RBUF, or not.
+ iasvel   0    -! assign velocity
+            -! the option for the choice of method for the
+            -! assignment of velocities during heating and
+            -! equilibration when IASORS is nonzero.  This option
+            -!  also controls the initial assignment of
+            -! velocities (when not RESTart) regardless of the
+            -! IASORS value.  .gt. 0 - gaussian distribution of
+            -! velocity. (+ve)
+ iasors   1 -! asssign or scale  0 scale not 0 assign
+ ntrfrq 500 -
+ echeck 999.0
+define confined sele ( segid @domain .and. backbone ) .and. prop z .gt. @upz -
+ .and. prop z .lt. @lowz end
+set nconfined ?nsel
+print coor sele confined end
+open unit 11 write card name pulled.cor
+write coor card unit 11 
+* pulled coor of tmd-pull
+*
+close unit 1 
+SYSTEM "echo 1 > switch.dat"
+! Check If SP-Ntermial has passed the confined region, stop the simulations
+coor stat sele segid @domain .and. resid 1 .and. type N end
+calc lowz = @lowz + 10
+if ?ZAVE .gt. @lowz then
+ system "echo 0 > switch.dat"
+endif
+stop
