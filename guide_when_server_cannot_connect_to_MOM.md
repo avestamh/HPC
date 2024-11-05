@@ -5,15 +5,15 @@ If you encounter this error “qdel: Server could not connect to MOM” and you 
 ### Step 1: Check the Queue and check the node that the jobs lands on
 
 ```
-# qstat -a (for summary)
+qstat -a (for summary)
 
-# qstat -n (You will see where the nodes the job lands)
+qstat -n (You will see where the nodes the job lands)
 ```
 
 ### Step 2: Try to kill as cluster administrator.
 
 ```
-# qdel
+qdel
 ```
 
 *If you are not able to delete the job somehow:*
@@ -21,13 +21,13 @@ If you encounter this error “qdel: Server could not connect to MOM” and you 
 ### Step 3: Try restarting PBS Mom on the client
 
 ```
-# service pbs_mom restart
+service pbs_mom restart
 ```
 
 ### Step 4: If Step 3 is not workable, it might be due to connection issues or hardware problems. Try:
 
 ```
-# ssh compute_node_1
+ssh compute_node_1
 ```
 
 If you cannot, you have to remote KVM into the server to take a look.
