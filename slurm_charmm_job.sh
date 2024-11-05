@@ -4,7 +4,10 @@
 #------------------------
 # Written by: Sadra Avestan
 # Date: February 2019
-# This code was to run my simulation on the Comet and Bridges cluster during my Ph.D.
+# This script sets up and runs a CHARMM simulation for the GFP protein, utilizing SLURM for job scheduling.
+# It defines necessary environment variables, input parameters, and executes the simulation with MPI.
+
+# This code was written to run my simulation on the Comet and Bridges cluster during my Ph.D.
 # It runs the CHARMM code for 600 cycles and then syncs the simulation results to the local machine
 # and delete everything from the cluster
 #---------------------------
